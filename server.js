@@ -28,8 +28,9 @@ let players = [];
 let currentPainter = 0;
 
 io.on('connection', socket => {
-  console.log('连接：', socket.id);
+  console.log(`New connection: ${socket.id}`);
 
+  // 玩家加入
   socket.on('join', name => {
     if (!players.find(p => p.id === socket.id)) {
       players.push({ id: socket.id, name, socket });
@@ -37,27 +38,23 @@ io.on('connection', socket => {
     }
   });
 
+  // 游戏流程事件
   socket.on('startGame', () => startRound());
-
-  // 画笔点
   socket.on('drawing', data => socket.broadcast.emit('drawing', data));
-  // 形状
   socket.on('drawShape', shape => socket.broadcast.emit('drawShape', shape));
-  // 清空画布
-  socket.on('clearBoard', () => io.emit('clearCanvas'));
-
+  socket.on('clearCanvas', () => io.emit('clearCanvas'));
   socket.on('guess', text => {
-    const painter = players[currentPainter]?.socket;
-    if (painter) painter.emit('newGuess', text);
+    const painterSocket = players[currentPainter]?.socket;
+    if (painterSocket) painterSocket.emit('newGuess', text);
   });
-
   socket.on('endRound', () => nextRound());
   socket.on('skipPrompt', () => startRound());
 
+  // 玩家断开连接
   socket.on('disconnect', () => {
     const wasPainter = players[currentPainter]?.id === socket.id;
     players = players.filter(p => p.id !== socket.id);
-    if (wasPainter) {
+    if (wasPainter && players.length > 0) {
       currentPainter %= players.length;
       startRound();
     } else if (currentPainter >= players.length) {
@@ -82,4 +79,4 @@ function nextRound() {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
