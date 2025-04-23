@@ -9,8 +9,20 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-// 用于托管前端打包后的静态文件（后面会用到）
-app.use(express.static(path.join(__dirname, 'public')));
+// 提供静态文件
+app.use(express.static(path.join(__dirname, 'client/build')));
+
+// 捕获所有路由并返回前端的 index.html
+app.get(/.*/, (req, res) => {
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  });
+  
+
+// 添加错误处理
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send('Something broke!');
+});
 
 let players = [];       // 存放所有玩家
 let currentPainter = 0; // 画家在 players 数组中的索引
@@ -68,6 +80,4 @@ function nextRound() {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`后端启动，端口 ${PORT}`));
-
-
+server.listen(PORT, () => console.log(`服务器已启动，端口 ${PORT}`));
