@@ -111,11 +111,15 @@ function App() {
     socket.on('roleUpdate', setRole);
     socket.on('newPrompt', setPrompt);
     socket.on('clearCanvas', resetCanvas);
-    socket.on('drawing', drawPoint);
+    socket.on('drawing', drawContinuous);
     socket.on('drawShape', addShape);
     socket.on('newGuess', g => setGuesses(prev => [...prev, g]));
+    socket.on('undo', () => {
+      setShapes(prev => prev.slice(0, -1));
+      redraw();
+    }); 
     return () => socket.off();
-  }, [resetCanvas, drawPoint, addShape]);
+  }, [resetCanvas, drawContinuous, addShape, redraw]);
 
   // 鼠标按下
   const handleMouseDown = e => {
