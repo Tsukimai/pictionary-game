@@ -173,7 +173,11 @@ function App() {
   const handleStart = () => socket.emit('startGame');
   const handleSkip  = () => socket.emit('skipPrompt');
   const handleClear = () => socket.emit('clearCanvas');
-  const handleUndo  = () => { setShapes(prev => prev.slice(0, -1)); redraw(); };
+  const handleUndo  = () => { 
+    setShapes(prev => prev.slice(0, -1)); 
+    redraw(); 
+    socket.emit('undo');
+  };
 
   const btnStyle   = { padding:'8px 16px', marginRight:8, border:'none', borderRadius:4, cursor:'pointer' };
   const activeBtn  = { background:'#4CAF50', color:'#fff' };

@@ -48,7 +48,7 @@ io.on('connection', socket => {
   socket.on('clearCanvas', () => io.emit('clearCanvas'));
   // 撤销操作
   socket.on('undo', () => {
-    socket.broadcast.emit('undo');
+    io.emit('undo');
   });
   // 猜词
   socket.on('guess', text => {
