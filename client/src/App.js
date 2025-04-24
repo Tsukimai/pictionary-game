@@ -111,7 +111,16 @@ function App() {
     socket.on('roleUpdate', setRole);
     socket.on('newPrompt', setPrompt);
     socket.on('clearCanvas', resetCanvas);
-    socket.on('drawing', drawContinuous);
+    socket.on('drawing', data => {
+      if (data.begin) {
+      // 起笔：只记位置，画一个点
+      lastPosRef.current = { x: data.x, y: data.y };
+      drawPoint(data);
+      } else {
+       // 拉线：两点之间连线
+      drawContinuous(data);
+       }
+    });
     socket.on('drawShape', addShape);
     socket.on('newGuess', g => setGuesses(prev => [...prev, g]));
     socket.on('undo', () => {
@@ -130,8 +139,8 @@ function App() {
     if (tool === 'brush' || tool === 'eraser') {
       lastPosRef.current = pos;
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
-      drawContinuous({ x: pos.x, y: pos.y, color, size: brushSize });
-      socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize });
+      drawPoint({ x: pos.x, y: pos.y, color, size: brushSize });
+      socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize, begin: true });
     }
   };
 
@@ -143,7 +152,7 @@ function App() {
     if (tool === 'brush' || tool === 'eraser') {
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
       drawContinuous({ x: pos.x, y: pos.y, color, size: brushSize });
-      socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize });
+      socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize, begin: false });
     } else {
       const preview = { tool, start: startPosRef.current, end: pos, color: brushColor, size: brushSize };
       redraw(preview);
@@ -178,8 +187,6 @@ function App() {
   const handleSkip  = () => socket.emit('skipPrompt');
   const handleClear = () => socket.emit('clearCanvas');
   const handleUndo  = () => { 
-    setShapes(prev => prev.slice(0, -1)); 
-    redraw(); 
     socket.emit('undo');
   };
 
