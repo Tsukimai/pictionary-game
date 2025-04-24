@@ -30,14 +30,18 @@ function App() {
   const isDrawingRef = useRef(false);
 
   // 单点绘制
-  const drawPoint = useCallback(({ x, y, color, size }) => {
+  const drawPoint = useCallback(({ x, y, color, size, begin }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, size, 0, 2 * Math.PI);
     ctx.fill();
+  
+    // 如果这是一次“起笔”，就把 lastPosRef 设为这个点
+    if (begin) {
+      lastPosRef.current = { x, y };
+    }
   }, []);
-
   // 连续绘制（两点连线 + 当前点）
   const drawContinuous = useCallback(({ x, y, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
@@ -80,25 +84,27 @@ function App() {
 
   // 重绘整个画布：回放 actions
   const redraw = useCallback(preview => {
-    const c = canvasRef.current;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, c.width, c.height);
-    // 先回放已有动作
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+    // **这里清空全局的 lastPos，让后续 replay 从头开始连线**
+    lastPosRef.current = null;
+  
     actions.forEach(act => {
       if (act.tool === 'brush') {
         if (act.begin) {
-          drawPoint(act);
+          drawPoint(act);            // 这里会因为 begin=true 而更新 lastPosRef
         } else {
-          drawContinuous(act);
+          drawContinuous(act);       // 正常从 lastPosRef 连到 act
         }
       } else {
         drawShape(act);
       }
     });
-    // 再回放预览（预览用的形状，不会写入 actions）
-    if (preview) {
-      drawShape(preview);
-    }
+  
+    // 最后再把当前的 shape 预览画上去
+    if (preview) drawShape(preview);
   }, [actions, drawPoint, drawContinuous, drawShape]);
 
   // 完全重置
