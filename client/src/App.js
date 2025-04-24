@@ -213,30 +213,32 @@ function App() {
             <div style={{ marginBottom:12 }}>请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）</div>
           )}
 
-          <canvas
-            ref={canvasRef}
-            width={800} height={500}
-            style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-          />
-
-          {/* 橡皮大小预览 */}
-          {tool==='eraser' && hoverPos && (
-            <div style={{
-              position:'absolute',
-              top: hoverPos.y ,
-              left: hoverPos.x ,
-              width: brushSize * 2,
-              height: brushSize * 2,
-              border:'1px dashed #000',
-              borderRadius:'50%',
-              pointerEvents:'none',
-              transform:'translate(-50%, -50%)'
-            }} />
-          )}
+          {/* 画布及橡皮预览容器 */}
+          <div ref={canvasWrapperRef} style={{ position:'relative', display:'inline-block' }}>
+            <canvas
+              ref={canvasRef}
+              width={800} height={500}
+              style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            />
+            {/* 橡皮大小预览 */}
+            {tool==='eraser' && hoverPos && (
+              <div style={{
+                position:'absolute',
+                top: hoverPos.y,
+                left: hoverPos.x,
+                width: brushSize*2,
+                height:brushSize*2,
+                border:'1px dashed #000',
+                borderRadius:'50%',
+                pointerEvents:'none',
+                transform:'translate(-50%, -50%)'
+              }}/>
+            )}
+          </div>
 
           {role===name ? (
             <div style={{ marginTop:16 }}>

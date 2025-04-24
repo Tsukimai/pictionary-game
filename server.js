@@ -47,7 +47,9 @@ io.on('connection', socket => {
   // 清空画布
   socket.on('clearCanvas', () => io.emit('clearCanvas'));
   // 撤销操作
-  socket.on('undo', () => io.emit('undo'));
+  socket.on('undo', () => {
+    socket.broadcast.emit('undo');
+  });
   // 猜词
   socket.on('guess', text => {
     const painterSocket = players[currentPainter]?.socket;
