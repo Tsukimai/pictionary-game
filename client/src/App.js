@@ -22,6 +22,7 @@ function App() {
 
   const [guessInput, setGuessInput] = useState('');
   const canvasRef = useRef(null);
+  const canvasWrapperRef = useRef(null);         // ← 新增这一行
   const startPosRef = useRef(null);
   const lastPosRef = useRef(null);
   const isDrawingRef = useRef(false);
@@ -47,7 +48,6 @@ function App() {
       ctx.lineTo(x, y);
       ctx.stroke();
     }
-    // 绘制当前点
     ctx.beginPath();
     ctx.fillStyle = color;
     ctx.arc(x, y, size, 0, 2 * Math.PI);
@@ -171,54 +171,94 @@ function App() {
     setJoined(true);
   };
   const handleStart = () => socket.emit('startGame');
-  const handleSkip = () => socket.emit('skipPrompt');
+  const handleSkip  = () => socket.emit('skipPrompt');
   const handleClear = () => socket.emit('clearCanvas');
-  const handleUndo = () => {
-    setShapes(prev => prev.slice(0, -1));
-    redraw();
-  };
+  const handleUndo  = () => { setShapes(prev => prev.slice(0, -1)); redraw(); };
 
-  const btnStyle = { padding:'8px 16px', marginRight:8, border:'none', borderRadius:4, cursor:'pointer' };
-  const activeBtn = { background:'#4CAF50', color:'#fff' };
+  const btnStyle   = { padding:'8px 16px', marginRight:8, border:'none', borderRadius:4, cursor:'pointer' };
+  const activeBtn  = { background:'#4CAF50', color:'#fff' };
   const neutralBtn = { background:'#e0e0e0' };
 
   return (
-    <div style={{ position:'relative', maxWidth:1000, margin:'20px auto', padding:20, background:'#f5f5f5', borderRadius:8, boxShadow:'0 2px 8px rgba(0,0,0,0.1)' }}>
+    <div style={{
+      position:'relative',
+      maxWidth:1000, margin:'20px auto', padding:20,
+      background:'#f5f5f5', borderRadius:8, boxShadow:'0 2px 8px rgba(0,0,0,0.1)'
+    }}>
       {!joined ? (
         <div style={{ textAlign:'center' }}>
-          <input placeholder="昵称" value={name} onChange={e=>setName(e.target.value)} style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }} />
-          <button onClick={handleJoin} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>加入</button>
+          <input
+            placeholder="昵称"
+            value={name}
+            onChange={e=>setName(e.target.value)}
+            style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }}
+          />
+          <button onClick={handleJoin} style={{ ...btnStyle, ...activeBtn }}>加入</button>
         </div>
       ) : (
         <>
-          <div style={{ marginBottom:12 }}><strong>在线玩家：</strong>{players.join('，')}</div>
-          <button onClick={handleStart} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>开始游戏</button>
-          <div style={{ margin:'12px 0' }}><strong>当前画家：</strong><span style={{ color:'#d32f2f' }}>{role}</span></div>
+          <div style={{ marginBottom:12 }}>
+            <strong>在线玩家：</strong>{players.join('，')}
+          </div>
+          <button onClick={handleStart} style={{ ...btnStyle, ...activeBtn }}>开始游戏</button>
+          <div style={{ margin:'12px 0' }}>
+            <strong>当前画家：</strong><span style={{ color:'#d32f2f' }}>{role}</span>
+          </div>
 
           <div style={{ margin:'12px 0', display:'flex', alignItems:'center' }}>
             <label style={{ marginRight:8 }}>工具：</label>
             {['brush','eraser','line','rect','circle'].map(t => (
-              <button key={t} onClick={()=>setTool(t)} style={{ ...btnStyle, ...(tool===t?activeBtn:neutralBtn) }}>{t}</button>
+              <button
+                key={t}
+                onClick={()=>setTool(t)}
+                style={{ ...btnStyle, ...(tool===t?activeBtn:neutralBtn) }}
+              >{t}</button>
             ))}
             <label style={{ margin:'0 8px 0 16px' }}>颜色：</label>
-            <input type="color" value={brushColor} onChange={e=>setBrushColor(e.target.value)} disabled={tool==='eraser'} style={{ marginRight:16 }} />
+            <input
+              type="color"
+              value={brushColor}
+              onChange={e=>setBrushColor(e.target.value)}
+              disabled={tool==='eraser'}
+              style={{ marginRight:16 }}
+            />
             <label style={{ marginRight:8 }}>粗细：</label>
-            <input type="range" min={1} max={20} value={brushSize} onChange={e=>setBrushSize(+e.target.value)} style={{ verticalAlign:'middle' }} />
+            <input
+              type="range"
+              min={1} max={20}
+              value={brushSize}
+              onChange={e=>setBrushSize(+e.target.value)}
+              style={{ verticalAlign:'middle' }}
+            />
             <span style={{ marginLeft:8 }}>{brushSize}px</span>
-            <button onClick={handleClear} style={{ ...btnStyle, background:'#f44336', color:'#fff', marginLeft:32 }}>清空画布</button>
-            {role===name && <button onClick={handleUndo} style={{ ...btnStyle, background:'#ff9800', color:'#fff', marginLeft:8 }}>撤销</button>}
+            <button onClick={handleClear}
+              style={{ ...btnStyle, background:'#f44336', color:'#fff', marginLeft:32 }}
+            >清空画布</button>
+            {role===name && (
+              <button onClick={handleUndo}
+                style={{ ...btnStyle, background:'#ff9800', color:'#fff', marginLeft:8 }}
+              >撤销</button>
+            )}
           </div>
 
           {role===name && prompt && (
-            <div style={{ marginBottom:12 }}>请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）</div>
+            <div style={{ marginBottom:12 }}>
+              请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）
+            </div>
           )}
 
           {/* 画布及橡皮预览容器 */}
-          <div ref={canvasWrapperRef} style={{ position:'relative', display:'inline-block' }}>
+          <div ref={canvasWrapperRef} style={{ position:'relative', display:'inline-block' }}>  
             <canvas
               ref={canvasRef}
-              width={800} height={500}
-              style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }}
+              width={800}
+              height={500}
+              style={{
+                border:'2px solid #666',
+                borderRadius:4,
+                background:'#fff',
+                cursor:'crosshair'
+              }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -228,14 +268,14 @@ function App() {
             {tool==='eraser' && hoverPos && (
               <div style={{
                 position:'absolute',
-                top: hoverPos.y,
-                left: hoverPos.x,
-                width: brushSize*2,
-                height:brushSize*2,
-                border:'1px dashed #000',
-                borderRadius:'50%',
-                pointerEvents:'none',
-                transform:'translate(-50%, -50%)'
+                top:    hoverPos.y,
+                left:   hoverPos.x,
+                width:  brushSize * 2,
+                height: brushSize * 2,
+                border: '1px dashed #000',
+                borderRadius: '50%',
+                pointerEvents: 'none',
+                transform: 'translate(-50%, -50%)'
               }}/>
             )}
           </div>
@@ -244,10 +284,18 @@ function App() {
             <div style={{ marginTop:16 }}>
               <h3>猜词列表</h3>
               <ul style={{ listStyle:'none', padding:0 }}>
-                {guesses.map((g,i)=><li key={i} style={{ marginBottom:4 }}><b>{g.name}：</b>{g.text}</li>)}
+                {guesses.map((g,i) => (
+                  <li key={i} style={{ marginBottom:4 }}>
+                    <b>{g.name}：</b>{g.text}
+                  </li>
+                ))}
               </ul>
-              <button onClick={()=>socket.emit('endRound')} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>结束回合</button>
-              <button onClick={handleSkip} style={{ ...btnStyle, background:'#e0e0e0', color:'#000' }}>跳过</button>
+              <button onClick={()=>socket.emit('endRound')}
+                style={{ ...btnStyle, ...activeBtn }}
+              >结束回合</button>
+              <button onClick={handleSkip}
+                style={{ ...btnStyle, ...neutralBtn }}
+              >跳过</button>
             </div>
           ) : (
             <div style={{ marginTop:16 }}>
@@ -258,7 +306,9 @@ function App() {
                 onKeyDown={e=>e.key==='Enter'&&submitGuess()}
                 style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }}
               />
-              <button onClick={submitGuess} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>提交猜词</button>
+              <button onClick={submitGuess}
+                style={{ ...btnStyle, ...activeBtn }}
+              >提交猜词</button>
             </div>
           )}
         </>
@@ -268,6 +318,7 @@ function App() {
 }
 
 export default App;
+
 
 
 
