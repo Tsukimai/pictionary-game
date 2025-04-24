@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import './App.css';
 
@@ -13,55 +13,50 @@ function App() {
   const [prompt, setPrompt] = useState(null);
   const [guesses, setGuesses] = useState([]);
 
-  // 画笔/形状工具状态
-  const [tool, setTool] = useState('brush'); // 'brush'|'eraser'|'line'|'rect'|'circle'
+  // 工具状态
+  const [tool, setTool] = useState('brush');
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(4);
   const [shapes, setShapes] = useState([]);
+  const [hoverPos, setHoverPos] = useState(null);
 
   const [guessInput, setGuessInput] = useState('');
-  const canvasRef = useRef();
+  const canvasRef = useRef(null);
   const startPosRef = useRef(null);
+  const lastPosRef = useRef(null);
   const isDrawingRef = useRef(false);
 
-  useEffect(() => {
-    socket.on('playerList', setPlayers);
-    socket.on('roleUpdate', setRole);
-    socket.on('newPrompt', setPrompt);
-    socket.on('clearCanvas', resetCanvas);
-    socket.on('drawing', data => drawPoint(data));
-    socket.on('drawShape', shape => addShape(shape));
-    socket.on('newGuess', g => setGuesses(prev => [...prev, g]));
-
-    return () => socket.off();
-  }, []);
-
-  // 重置画布和状态
-  function resetCanvas() {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setGuesses([]);
-    setShapes([]);
-  }
-
   // 绘制单点
-  function drawPoint({ x, y, color, size }) {
+  const drawPoint = useCallback(({ x, y, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, size, 0, 2 * Math.PI);
     ctx.fill();
-  }
+  }, []);
 
-  // 存储并绘制形状
-  function addShape(shape) {
-    setShapes(prev => [...prev, shape]);
-    drawShape(shape);
-  }
+  // 连续绘制
+  const drawContinuous = useCallback(({ x, y, color, size }) => {
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 2;
+    const last = lastPosRef.current;
+    if (last) {
+      ctx.beginPath();
+      ctx.moveTo(last.x, last.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+    // 绘制当前点
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.arc(x, y, size, 0, 2 * Math.PI);
+    ctx.fill();
+    lastPosRef.current = { x, y };
+  }, []);
 
-  // 绘制线/矩形/圆
-  function drawShape({ tool, start, end, color, size }) {
+  // 绘制形状
+  const drawShape = useCallback(({ tool, start, end, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.strokeStyle = color;
     ctx.lineWidth = size;
@@ -79,171 +74,189 @@ function App() {
       ctx.arc(start.x, start.y, r, 0, 2 * Math.PI);
       ctx.stroke();
     }
-  }
+  }, []);
 
-  // 重绘所有历史形状，及可选预览
-  function redraw(preview) {
+  // 添加形状
+  const addShape = useCallback(shape => {
+    setShapes(prev => [...prev, shape]);
+    drawShape(shape);
+  }, [drawShape]);
+
+  // 重绘
+  const redraw = useCallback(preview => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    shapes.forEach(shape => drawShape(shape));
+    shapes.forEach(s => drawShape(s));
     if (preview) drawShape(preview);
-  }
+  }, [shapes, drawShape]);
 
-  function getMousePos(e) {
+  // 重置
+  const resetCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setGuesses([]);
+    setShapes([]);
+  }, []);
+
+  const getMousePos = e => {
     const rect = canvasRef.current.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }
+  };
 
-  function handleMouseDown(e) {
+  // Socket 事件
+  useEffect(() => {
+    socket.on('playerList', setPlayers);
+    socket.on('roleUpdate', setRole);
+    socket.on('newPrompt', setPrompt);
+    socket.on('clearCanvas', resetCanvas);
+    socket.on('drawing', drawPoint);
+    socket.on('drawShape', addShape);
+    socket.on('newGuess', g => setGuesses(prev => [...prev, g]));
+    return () => socket.off();
+  }, [resetCanvas, drawPoint, addShape]);
+
+  // 鼠标按下
+  const handleMouseDown = e => {
     if (role !== name || e.button !== 0) return;
     const pos = getMousePos(e);
     startPosRef.current = pos;
     isDrawingRef.current = true;
     if (tool === 'brush' || tool === 'eraser') {
+      lastPosRef.current = pos;
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
-      drawPoint({ x: pos.x, y: pos.y, color, size: brushSize });
+      drawContinuous({ x: pos.x, y: pos.y, color, size: brushSize });
       socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize });
     }
-  }
+  };
 
-  function handleMouseMove(e) {
-    if (!isDrawingRef.current || role !== name) return;
+  // 鼠标移动
+  const handleMouseMove = e => {
     const pos = getMousePos(e);
+    setHoverPos(pos);
+    if (!isDrawingRef.current || role !== name) return;
     if (tool === 'brush' || tool === 'eraser') {
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
-      drawPoint({ x: pos.x, y: pos.y, color, size: brushSize });
+      drawContinuous({ x: pos.x, y: pos.y, color, size: brushSize });
       socket.emit('drawing', { x: pos.x, y: pos.y, color, size: brushSize });
     } else {
-      const preview = {
-        tool,
-        start: startPosRef.current,
-        end: pos,
-        color: brushColor,
-        size: brushSize
-      };
+      const preview = { tool, start: startPosRef.current, end: pos, color: brushColor, size: brushSize };
       redraw(preview);
     }
-  }
+  };
 
-  function handleMouseUp(e) {
+  // 鼠标松开
+  const handleMouseUp = e => {
     if (!isDrawingRef.current || role !== name) return;
     const pos = getMousePos(e);
     if (tool !== 'brush' && tool !== 'eraser') {
-      const shape = {
-        tool,
-        start: startPosRef.current,
-        end: pos,
-        color: brushColor,
-        size: brushSize
-      };
+      const shape = { tool, start: startPosRef.current, end: pos, color: brushColor, size: brushSize };
       addShape(shape);
       socket.emit('drawShape', shape);
     }
     isDrawingRef.current = false;
-  }
+  };
 
-  function submitGuess() {
+  const submitGuess = () => {
     const text = guessInput.trim();
     if (!text) return;
     socket.emit('guess', { name, text });
     setGuessInput('');
-  }
+  };
 
-  function handleJoin() {
+  const handleJoin = () => {
     if (!name.trim()) return alert('请输入昵称');
     socket.emit('join', name.trim());
     setJoined(true);
-  }
+  };
+  const handleStart = () => socket.emit('startGame');
+  const handleSkip = () => socket.emit('skipPrompt');
+  const handleClear = () => socket.emit('clearCanvas');
+  const handleUndo = () => {
+    setShapes(prev => prev.slice(0, -1));
+    redraw();
+  };
 
-  function handleStart() { socket.emit('startGame'); }
-  function handleSkip() { socket.emit('skipPrompt'); }
-  function handleClear() { socket.emit('clearCanvas'); }
-
-  const btn = { margin: 4, padding: '6px 12px' };
-  const active = { background: '#4CAF50', color: '#fff' };
+  const btnStyle = { padding:'8px 16px', marginRight:8, border:'none', borderRadius:4, cursor:'pointer' };
+  const activeBtn = { background:'#4CAF50', color:'#fff' };
+  const neutralBtn = { background:'#e0e0e0' };
 
   return (
-    <div style={{ maxWidth: 800, margin: '20px auto', padding: 20 }}>
+    <div style={{ position:'relative', maxWidth:800, margin:'20px auto', padding:20, background:'#f5f5f5', borderRadius:8, boxShadow:'0 2px 8px rgba(0,0,0,0.1)' }}>
       {!joined ? (
-        <div style={{ textAlign: 'center' }}>
-          <input placeholder="昵称" value={name} onChange={e => setName(e.target.value)} />
-          <button onClick={handleJoin} style={btn}>加入</button>
+        <div style={{ textAlign:'center' }}>
+          <input placeholder="昵称" value={name} onChange={e=>setName(e.target.value)} style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }} />
+          <button onClick={handleJoin} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>加入</button>
         </div>
       ) : (
         <>
-          <div><strong>在线：</strong>{players.join('，')}</div>
-          <button onClick={handleStart} style={btn}>开始游戏</button>
-          <div><strong>画家：</strong><span style={{ color: 'red' }}>{role}</span></div>
+          <div style={{ marginBottom:12 }}><strong>在线玩家：</strong>{players.join('，')}</div>
+          <button onClick={handleStart} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>开始游戏</button>
+          <div style={{ margin:'12px 0' }}><strong>当前画家：</strong><span style={{ color:'#d32f2f' }}>{role}</span></div>
 
-          <div style={{ margin: '12px 0' }}>
-            <label>工具：</label>
+          <div style={{ margin:'12px 0', display:'flex', alignItems:'center' }}>
+            <label style={{ marginRight:8 }}>工具：</label>
             {['brush','eraser','line','rect','circle'].map(t => (
-              <button
-                key={t}
-                onClick={() => setTool(t)}
-                style={{ ...btn, ...(tool===t ? active : {}) }}
-              >
-                {t}
-              </button>
+              <button key={t} onClick={()=>setTool(t)} style={{ ...btnStyle, ...(tool===t?activeBtn:neutralBtn) }}>{t}</button>
             ))}
-
-            <label>颜色：</label>
-            <input
-              type="color"
-              value={brushColor}
-              onChange={e => setBrushColor(e.target.value)}
-              disabled={tool==='eraser'}
-              style={{ margin: '0 12px' }}
-            />
-
-            <label>粗细：</label>
-            <input
-              type="range"
-              min={1}
-              max={20}
-              value={brushSize}
-              onChange={e => setBrushSize(+e.target.value)}
-            />
-
-            <button onClick={handleClear} style={{ ...btn, marginLeft: 32 }}>清空画布</button>
+            <label style={{ margin:'0 8px 0 16px' }}>颜色：</label>
+            <input type="color" value={brushColor} onChange={e=>setBrushColor(e.target.value)} disabled={tool==='eraser'} style={{ marginRight:16 }} />
+            <label style={{ marginRight:8 }}>粗细：</label>
+            <input type="range" min={1} max={20} value={brushSize} onChange={e=>setBrushSize(+e.target.value)} style={{ verticalAlign:'middle' }} />
+            <span style={{ marginLeft:8 }}>{brushSize}px</span>
+            <button onClick={handleClear} style={{ ...btnStyle, background:'#f44336', color:'#fff', marginLeft:32 }}>清空画布</button>
+            {role===name && <button onClick={handleUndo} style={{ ...btnStyle, background:'#ff9800', color:'#fff', marginLeft:8 }}>撤销</button>}
           </div>
 
           {role===name && prompt && (
-            <div style={{ marginBottom: 12 }}>
-              请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）
-            </div>
+            <div style={{ marginBottom:12 }}>请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）</div>
           )}
 
           <canvas
             ref={canvasRef}
-            width={700}
-            height={400}
-            style={{ border: '2px solid #666', background: '#fff' }}
+            width={700} height={400}
+            style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
           />
 
+          {/* 橡皮大小预览 */}
+          {tool==='eraser' && hoverPos && (
+            <div style={{
+              position:'absolute',
+              top: hoverPos.y + 20,
+              left: hoverPos.x + 20,
+              width: brushSize * 2,
+              height: brushSize * 2,
+              border:'1px dashed #000',
+              borderRadius:'50%',
+              pointerEvents:'none',
+              transform:'translate(-50%, -50%)'
+            }} />
+          )}
+
           {role===name ? (
-            <div style={{ marginTop: 16 }}>
-              <h3>猜词</h3>
-              <ul>
-                {guesses.map((g, i) => <li key={i}><b>{g.name}：</b>{g.text}</li>)}
+            <div style={{ marginTop:16 }}>
+              <h3>猜词列表</h3>
+              <ul style={{ listStyle:'none', padding:0 }}>
+                {guesses.map((g,i)=><li key={i} style={{ marginBottom:4 }}><b>{g.name}：</b>{g.text}</li>)}
               </ul>
-              <button onClick={() => socket.emit('endRound')} style={btn}>结束回合</button>
-              <button onClick={handleSkip} style={btn}>跳过</button>
+              <button onClick={()=>socket.emit('endRound')} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>结束回合</button>
+              <button onClick={handleSkip} style={{ ...btnStyle, background:'#e0e0e0', color:'#000' }}>跳过</button>
             </div>
           ) : (
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop:16 }}>
               <input
                 placeholder="输入猜词"
                 value={guessInput}
-                onChange={e => setGuessInput(e.target.value)}
-                onKeyDown={e => e.key==='Enter' && submitGuess()}
+                onChange={e=>setGuessInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&submitGuess()}
+                style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }}
               />
-              <button onClick={submitGuess} style={btn}>提交</button>
+              <button onClick={submitGuess} style={{ ...btnStyle, background:'#4CAF50', color:'#fff' }}>提交猜词</button>
             </div>
           )}
         </>
@@ -253,5 +266,6 @@ function App() {
 }
 
 export default App;
+
 
 

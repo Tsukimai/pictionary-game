@@ -38,15 +38,22 @@ io.on('connection', socket => {
     }
   });
 
-  // 游戏流程事件
+  // 游戏事件
   socket.on('startGame', () => startRound());
+  // 画笔连续绘制点
   socket.on('drawing', data => socket.broadcast.emit('drawing', data));
+  // 形状绘制
   socket.on('drawShape', shape => socket.broadcast.emit('drawShape', shape));
+  // 清空画布
   socket.on('clearCanvas', () => io.emit('clearCanvas'));
+  // 撤销操作
+  socket.on('undo', () => io.emit('undo'));
+  // 猜词
   socket.on('guess', text => {
     const painterSocket = players[currentPainter]?.socket;
     if (painterSocket) painterSocket.emit('newGuess', text);
   });
+  // 回合控制
   socket.on('endRound', () => nextRound());
   socket.on('skipPrompt', () => startRound());
 
