@@ -14,11 +14,10 @@ app.use(express.static(path.join(__dirname, 'client/build')));
 
 // 捕获所有路由并返回前端的 index.html
 app.get(/.*/, (req, res) => {
-    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
-  });
-  
+  res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+});
 
-// 添加错误处理
+// 错误处理
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).send('Something broke!');
@@ -38,28 +37,45 @@ io.on('connection', socket => {
     }
   });
 
-  // 游戏事件
+  // 开始新回合
   socket.on('startGame', () => startRound());
-  // 画笔连续绘制点
-  socket.on('drawing', data => socket.broadcast.emit('drawing', data));
+
+  // 笔刷起笔 —— 新增
+  socket.on('strokeBegin', data => {
+    socket.broadcast.emit('strokeBegin', data);
+  });
+
+  // 笔刷中间的每个点
+  socket.on('drawing', data => {
+    socket.broadcast.emit('drawing', data);
+  });
+
   // 形状绘制
-  socket.on('drawShape', shape => socket.broadcast.emit('drawShape', shape));
+  socket.on('drawShape', shape => {
+    socket.broadcast.emit('drawShape', shape);
+  });
+
   // 清空画布
-  socket.on('clearCanvas', () => io.emit('clearCanvas'));
-  // 撤销操作
+  socket.on('clearCanvas', () => {
+    io.emit('clearCanvas');
+  });
+
+  // 撤销
   socket.on('undo', () => {
     io.emit('undo');
   });
+
   // 猜词
   socket.on('guess', text => {
     const painterSocket = players[currentPainter]?.socket;
     if (painterSocket) painterSocket.emit('newGuess', text);
   });
-  // 回合控制
+
+  // 结束 / 跳过
   socket.on('endRound', () => nextRound());
   socket.on('skipPrompt', () => startRound());
 
-  // 玩家断开连接
+  // 玩家断线
   socket.on('disconnect', () => {
     const wasPainter = players[currentPainter]?.id === socket.id;
     players = players.filter(p => p.id !== socket.id);
@@ -89,3 +105,4 @@ function nextRound() {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+
