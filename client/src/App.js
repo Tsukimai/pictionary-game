@@ -17,28 +17,27 @@ function App() {
   const [brushColor, setBrushColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(4);
 
-  // 记录所有操作：brush/eraser (带 begin)、line/rect/circle
+  // 支持两类动作：stroke（笔刷/橡皮）和 shape
   const [actions, setActions] = useState([]);
   const [hoverPos, setHoverPos] = useState(null);
   const [guessInput, setGuessInput] = useState('');
 
   const canvasRef = useRef(null);
-  const canvasWrapperRef = useRef(null);
+  const wrapperRef = useRef(null);
   const startPosRef = useRef(null);
   const lastPosRef = useRef(null);
   const isDrawingRef = useRef(false);
 
-  const drawPoint = useCallback(({ x, y, color, size, begin }) => {
+  // 绘制一个点
+  const drawPoint = useCallback(({ x, y, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, size, 0, 2 * Math.PI);
     ctx.fill();
-    if (begin) {
-      lastPosRef.current = { x, y };
-    }
   }, []);
 
+  // 连线 + 点
   const drawContinuous = useCallback(({ x, y, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.strokeStyle = color;
@@ -57,6 +56,7 @@ function App() {
     lastPosRef.current = { x, y };
   }, []);
 
+  // 绘制形状
   const drawShape = useCallback(({ tool, start, end, color, size }) => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.strokeStyle = color;
@@ -77,27 +77,33 @@ function App() {
     }
   }, []);
 
+  // 重绘所有 actions
   const redraw = useCallback(preview => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const c = canvasRef.current;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    // 清除笔刷 lastPos
     lastPosRef.current = null;
+
     actions.forEach(act => {
-      if (act.tool === 'brush') {
-        if (act.begin) {
-          drawPoint(act);
-        } else {
-          drawContinuous(act);
-        }
+      if (act.type === 'stroke') {
+        // 回放 stroke
+        act.points.forEach((pt, i) => {
+          if (i === 0) {
+            drawPoint(pt);
+          } else {
+            drawContinuous(pt);
+          }
+        });
       } else {
+        // shape
         drawShape(act);
       }
     });
-    if (preview) {
-      drawShape(preview);
-    }
+    if (preview) drawShape(preview);
   }, [actions, drawPoint, drawContinuous, drawShape]);
 
+  // 完全重置
   const resetCanvas = useCallback(() => {
     const ctx = canvasRef.current.getContext('2d');
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -116,19 +122,30 @@ function App() {
     socket.on('newPrompt', setPrompt);
     socket.on('clearCanvas', resetCanvas);
 
+    // 监听 stroke 开始
+    socket.on('strokeBegin', data => {
+      // 先创建一个新的 stroke
+      setActions(prev => [...prev, { type: 'stroke', color: data.color, size: data.size, points: [data] }]);
+      drawPoint(data);
+      lastPosRef.current = { x: data.x, y: data.y };
+    });
+    // 监听 stroke 中间点
     socket.on('drawing', data => {
-      if (data.begin) {
-        lastPosRef.current = { x: data.x, y: data.y };
-        drawPoint(data);
-      } else {
-        drawContinuous(data);
-      }
-      setActions(prev => [...prev, data]);
+      // 追加到当前 stroke
+      setActions(prev => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last && last.type === 'stroke') {
+          last.points.push(data);
+        }
+        return copy;
+      });
+      drawContinuous(data);
     });
 
     socket.on('drawShape', shape => {
+      setActions(prev => [...prev, { type: 'shape', ...shape }]);
       drawShape(shape);
-      setActions(prev => [...prev, shape]);
     });
 
     socket.on('newGuess', g => setGuesses(prev => [...prev, g]));
@@ -147,12 +164,14 @@ function App() {
     startPosRef.current = pos;
     isDrawingRef.current = true;
     if (tool === 'brush' || tool === 'eraser') {
-      lastPosRef.current = pos;
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
-      const act = { tool: 'brush', x: pos.x, y: pos.y, color, size: brushSize, begin: true };
-      drawPoint(act);
-      setActions(prev => [...prev, act]);
-      socket.emit('drawing', act);
+      const data = { x: pos.x, y: pos.y, color, size: brushSize };
+      // 自己先处理
+      setActions(prev => [...prev, { type: 'stroke', color, size: brushSize, points: [data] }]);
+      drawPoint(data);
+      lastPosRef.current = pos;
+      // 广播 strokeBegin
+      socket.emit('strokeBegin', data);
     }
   };
 
@@ -162,10 +181,17 @@ function App() {
     if (!isDrawingRef.current || role !== name) return;
     if (tool === 'brush' || tool === 'eraser') {
       const color = tool === 'eraser' ? '#ffffff' : brushColor;
-      const act = { tool: 'brush', x: pos.x, y: pos.y, color, size: brushSize, begin: false };
-      drawContinuous(act);
-      setActions(prev => [...prev, act]);
-      socket.emit('drawing', act);
+      const data = { x: pos.x, y: pos.y, color, size: brushSize };
+      setActions(prev => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last && last.type === 'stroke') {
+          last.points.push(data);
+        }
+        return copy;
+      });
+      drawContinuous(data);
+      socket.emit('drawing', data);
     } else {
       const preview = { tool, start: startPosRef.current, end: pos, color: brushColor, size: brushSize };
       redraw(preview);
@@ -177,8 +203,8 @@ function App() {
     const pos = getMousePos(e);
     if (tool !== 'brush' && tool !== 'eraser') {
       const shape = { tool, start: startPosRef.current, end: pos, color: brushColor, size: brushSize };
+      setActions(prev => [...prev, { type: 'shape', ...shape }]);
       drawShape(shape);
-      setActions(prev => [...prev, shape]);
       socket.emit('drawShape', shape);
     }
     isDrawingRef.current = false;
@@ -217,7 +243,6 @@ function App() {
           <div style={{ marginBottom:12 }}><strong>在线玩家：</strong>{players.join('，')}</div>
           <button onClick={handleStart} style={{ ...btnStyle, ...activeBtn }}>开始游戏</button>
           <div style={{ margin:'12px 0' }}><strong>当前画家：</strong><span style={{ color:'#d32f2f' }}>{role}</span></div>
-
           <div style={{ margin:'12px 0', display:'flex', alignItems:'center' }}>
             <label style={{ marginRight:8 }}>工具：</label>
             {['brush','eraser','line','rect','circle'].map(t => (
@@ -231,40 +256,19 @@ function App() {
             <button onClick={handleClear} style={{ ...btnStyle, background:'#f44336', color:'#fff', marginLeft:32 }}>清空画布</button>
             {role===name && <button onClick={handleUndo} style={{ ...btnStyle, background:'#ff9800', color:'#fff', marginLeft:8 }}>撤销</button>}
           </div>
-
-          {role===name && prompt && (
-            <div style={{ marginBottom:12 }}>请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）</div>
-          )}
-
-          <div ref={canvasWrapperRef} style={{ position:'relative', display:'inline-block' }}>
-            <canvas
-              ref={canvasRef}
-              width={800} height={500}
-              style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            />
-            {tool==='eraser' && hoverPos && (
-              <div style={{ position:'absolute', top:hoverPos.y, left:hoverPos.x, width:brushSize*2, height:brushSize*2, border:'1px dashed #000', borderRadius:'50%', pointerEvents:'none', transform:'translate(-50%,-50%)' }} />
-            )}
+          {role===name && prompt && (<div style={{ marginBottom:12 }}>请画：<b>{prompt.title}</b>（{prompt.tags.join('，')}）</div>)}
+          <div ref={wrapperRef} style={{ position:'relative', display:'inline-block' }}>
+            <canvas ref={canvasRef} width={800} height={500} style={{ border:'2px solid #666', borderRadius:4, background:'#fff', cursor:'crosshair' }} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} />
+            {tool==='eraser' && hoverPos && (<div style={{ position:'absolute', top:hoverPos.y, left:hoverPos.x, width:brushSize*2, height:brushSize*2, border:'1px dashed #000', borderRadius:'50%', pointerEvents:'none', transform:'translate(-50%,-50%)' }} />)}
           </div>
-
           {role===name ? (
             <div style={{ marginTop:16 }}>
-              <h3>猜词列表</h3>
-              <ul style={{ listStyle:'none', padding:0 }}>
-                {guesses.map((g,i)=><li key={i} style={{ marginBottom:4 }}><b>{g.name}：</b>{g.text}</li>)}
-              </ul>
+              <h3>猜词列表</h3><ul style={{ listStyle:'none', padding:0 }}>{guesses.map((g,i)=><li key={i} style={{ marginBottom:4 }}><b>{g.name}：</b>{g.text}</li>)}</ul>
               <button onClick={()=>socket.emit('endRound')} style={{ ...btnStyle, ...activeBtn }}>结束回合</button>
               <button onClick={handleSkip} style={{ ...btnStyle, ...neutralBtn }}>跳过</button>
             </div>
           ) : (
-            <div style={{ marginTop:16 }}>
-              <input placeholder="输入猜词" value={guessInput} onChange={e=>setGuessInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitGuess()} style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }} />
-              <button onClick={submitGuess} style={{ ...btnStyle, ...activeBtn }}>提交猜词</button>
-            </div>
+            <div style={{ marginTop:16 }}><input placeholder="输入猜词" value={guessInput} onChange={e=>setGuessInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitGuess()} style={{ padding:6, marginRight:8, borderRadius:4, border:'1px solid #ccc' }} /><button onClick={submitGuess} style={{ ...btnStyle, ...activeBtn }}>提交猜词</button></div>
           )}
         </>
       )}
@@ -273,6 +277,7 @@ function App() {
 }
 
 export default App;
+
 
 
 
